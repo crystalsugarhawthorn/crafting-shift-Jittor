@@ -1,0 +1,6 @@
+__pycache__/
+Analysis_Results/
+data/
+Results/
+*.pkl
+Pretrained_Models/

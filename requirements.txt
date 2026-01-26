@@ -1,0 +1,7 @@
+jittor
+imgaug
+numpy
+pillow
+scipy
+scikit-image
+pyyaml
