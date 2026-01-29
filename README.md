@@ -30,6 +30,59 @@ pip install jittor imgaug numpy pillow scipy scikit-image pyyaml
 
 数据文件位于：`data/PACS/`
 
+将PACS数据集下载到 `data/PACS/` 目录下，命名为 `PACS_Original/`，
+```
+crafting-shifts-Jittor/
+    └── data/
+        └── PACS/
+            └── PACS_Original/
+                ├── art_painting/
+                ├── cartoon/
+                ├── photo/
+                └── sketch/
+```
+
+生成 10 种特殊增强版本的 PACS 数据集：
+```bash
+python create_imgaug_datasets.py --dataset PACS
+```
+
+- 将生成多个 ImgAug 增强目录（`PACS_Imgaug_*`），并生成对应的 CSV 文件。
+
+最终数据目录结构如下：
+```
+crafting-shifts-Jittor/
+    └── data/
+        └── PACS/
+            ├── PACS_Imgaug_arithmetic/
+            ├── PACS_Imgaug_artistic/
+            ├── PACS_Imgaug_blur/
+            ├── PACS_Imgaug_color/
+            ├── PACS_Imgaug_contrast/
+            ├── PACS_Imgaug_convolutional/
+            ├── PACS_Imgaug_edges/
+            ├── PACS_Imgaug_geometric/
+            ├── PACS_Imgaug_segmentation/
+            ├── PACS_Imgaug_weather/
+            └── PACS_Original/
+                ├── art_painting/
+                ├── cartoon/
+                ├── photo/
+                └── sketch/
+            ├── art_painting_test.csv
+            ├── art_painting_train.csv
+            ├── art_painting_val.csv
+            ├── cartoon_test.csv
+            ├── cartoon_train.csv
+            ├── cartoon_val.csv
+            ├── photo_test.csv
+            ├── photo_train.csv
+            ├── photo_val.csv
+            ├── sketch_test.csv
+            ├── sketch_train.csv
+            └── sketch_val.csv
+```
+
 - 包含原始分割（`PACS_Original/`）和多个预生成的 ImgAug 增强目录（`PACS_Imgaug_*`）。
 - CSV 文件格式为：每行 `相对路径 类别`，保持与原项目一致。
 
