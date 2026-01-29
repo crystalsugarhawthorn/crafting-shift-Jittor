@@ -70,6 +70,26 @@ def parse_args():
     )
     parser.add_argument("--amp", action="store_true", help="Enable mixed precision training (AMP)")
     parser.add_argument("--deterministic", action="store_true", help="Force deterministic behavior")
+    parser.add_argument(
+        "--fusion_weights",
+        nargs="+",
+        type=float,
+        default=[0.10, 0.20, 0.25, 0.30, 0.40, 0.50, 0.60, 0.70, 0.75, 0.80, 0.90],
+        help="Fusion weights w0 for eval-time geometric mean (w1=1-w0)",
+    )
+    parser.add_argument(
+        "--val_only_metric",
+        nargs="+",
+        default=["average"],
+        choices=["average", "worst", "cvar"],
+        help="Metrics to summarize val_only groups",
+    )
+    parser.add_argument(
+        "--val_only_cvar_k",
+        type=int,
+        default=2,
+        help="Bottom-k groups for val_only CVaR",
+    )
 
     return parser.parse_args()
 
@@ -153,6 +173,7 @@ def main():
             csv_file_name=csv_file_name,
             test_idx_list=test_idx_list,
             domains=domains,
+            val_only_metric=args.val_only_metric,
         )
 
         if args.lr is not None and args.method_loss is not None:
@@ -172,6 +193,7 @@ def main():
                 method_loss=args.method_loss,
                 csv_file_name=csv_file_name,
                 domains=domains,
+                args=args,
             )
         else:
             search_hyperparameters(

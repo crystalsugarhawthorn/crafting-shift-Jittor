@@ -7,7 +7,13 @@ import os
 
 
 class PseudoCombiner(nn.Module):
-    def __init__(self, no_classes, pretrained=False, backbone_name="resnet18"):
+    def __init__(
+        self,
+        no_classes,
+        pretrained=False,
+        backbone_name="resnet18",
+        fusion_weights=None,
+    ):
         super(PseudoCombiner, self).__init__()
         self.backbone_name = backbone_name
         self.backbone, feature_dim = self.create_backbone(
@@ -15,6 +21,19 @@ class PseudoCombiner(nn.Module):
         )
         self.feature_dim = feature_dim
         self.classifier = nn.Linear(feature_dim, no_classes)
+        self.fusion_weights = fusion_weights or [
+            0.10,
+            0.20,
+            0.25,
+            0.30,
+            0.40,
+            0.50,
+            0.60,
+            0.70,
+            0.75,
+            0.80,
+            0.90,
+        ]
 
     def execute(self, x):
         outputs = []
@@ -30,18 +49,11 @@ class PseudoCombiner(nn.Module):
             outputs.append(self.classifier(pseudo))
 
         if (not self.is_training()) and len(outputs) > 1:
-            outputs.append(
-                jt.pow(nn.softmax(outputs[0], dim=1), 0.25)
-                * jt.pow(nn.softmax(outputs[1], dim=1), 0.75)
-            )
-            outputs.append(
-                jt.pow(nn.softmax(outputs[0], dim=1), 0.50)
-                * jt.pow(nn.softmax(outputs[1], dim=1), 0.50)
-            )
-            outputs.append(
-                jt.pow(nn.softmax(outputs[0], dim=1), 0.75)
-                * jt.pow(nn.softmax(outputs[1], dim=1), 0.25)
-            )
+            prob0 = nn.softmax(outputs[0], dim=1)
+            prob1 = nn.softmax(outputs[1], dim=1)
+            for w0 in self.fusion_weights:
+                w1 = 1.0 - w0
+                outputs.append(jt.pow(prob0, w0) * jt.pow(prob1, w1))
 
         return outputs
 

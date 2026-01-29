@@ -25,7 +25,39 @@ def parse_args():
         type=str,
         help="cross-val experiment names eg experiment_first and experiment_second",
     )
+    parser.add_argument(
+        "--val_only_metric",
+        nargs="+",
+        default=["average"],
+        choices=["average", "worst", "cvar"],
+        help="Val-only metrics to aggregate",
+    )
+    parser.add_argument(
+        "--val_only_cvar_k",
+        type=int,
+        default=2,
+        help="Bottom-k groups for val_only CVaR",
+    )
     return parser.parse_args()
+
+
+def normalize_val_only_metric(val_only_metric):
+    if val_only_metric is None:
+        metrics = ["average"]
+    elif isinstance(val_only_metric, str):
+        metrics = [val_only_metric]
+    else:
+        metrics = list(val_only_metric)
+    seen = set()
+    out = []
+    for metric in metrics:
+        if metric is None:
+            continue
+        metric = str(metric).lower()
+        if metric and metric not in seen:
+            out.append(metric)
+            seen.add(metric)
+    return out or ["average"]
 
 
 def cross_val(args):
@@ -66,40 +98,56 @@ def cross_val(args):
         for pseudo in possible_pseudo_names
     ]
 
-    seed_dict = {}
+    # Collect per-file series lists to avoid repeated concat/column inserts which fragment DataFrames
+    seed_series = {}
     file_names = [f"Results_source_{args.domain}_seed_{idx}.csv" for idx in args.seeds]
+    metrics = normalize_val_only_metric(args.val_only_metric)
 
     for cv_exp_name in cv_exp_names:
         for file_name in file_names:
 
             # Read the CSV file into a DataFrame and append it to the corresponding class data
             df = pd.read_csv(os.path.join(cv_exp_name, file_name))
+            df = df.copy()
             df["lr_method_loss"] = df.apply(
                 lambda row: f"{row['lr']:.10f}_{row['method_loss']:.2f}", axis=1
             )
             df = df.sort_values("lr_method_loss").reset_index(drop=True)
             for imgaug_pseudo_name in imgaug_pseudo_names:
-                if f"Imgaug_{imgaug_pseudo_name}" in df.columns:
-                    if file_name not in seed_dict:
-                        seed_dict[file_name] = df[f"Imgaug_{imgaug_pseudo_name}"]
+                col = f"Imgaug_{imgaug_pseudo_name}"
+                if col in df.columns:
+                    if file_name not in seed_series:
+                        seed_series[file_name] = [df[col]]
                     else:
-                        seed_dict[file_name] = pd.concat(
-                            [seed_dict[file_name], df[f"Imgaug_{imgaug_pseudo_name}"]],
-                            axis=1,
-                        )
+                        seed_series[file_name].append(df[col])
+
+    # Now concat once per file to build DataFrames and avoid fragmentation
+    seed_dict = {file_name: pd.concat(series_list, axis=1) for file_name, series_list in seed_series.items()}
 
     for key, value in seed_dict.items():
         for pseudo in possible_pseudo_names:
             if any(seed_dict[key].columns.str.contains(pseudo)):
-                seed_dict[key][f"Cross_val_Imgaug_average_{pseudo}"] = (
-                    seed_dict[key].filter(like=pseudo).mean(axis=1)
-                )
+                group_df = seed_dict[key].filter(like=pseudo)
+                if "average" in metrics:
+                    seed_dict[key][f"Cross_val_Imgaug_average_{pseudo}"] = (
+                        group_df.mean(axis=1)
+                    )
+                if "worst" in metrics:
+                    seed_dict[key][f"Cross_val_Imgaug_worst_{pseudo}"] = (
+                        group_df.min(axis=1)
+                    )
+                if "cvar" in metrics:
+                    k_eff = max(1, min(args.val_only_cvar_k, group_df.shape[1]))
+                    seed_dict[key][f"Cross_val_Imgaug_cvar_{pseudo}"] = (
+                        group_df.apply(lambda row: row.nsmallest(k_eff).mean(), axis=1)
+                    )
 
     for file_name in file_names:
 
         # Read the CSV file into a DataFrame and append it to the corresponding class data
         file_path = os.path.join(main_exp_name, file_name)
         df = pd.read_csv(file_path)
+        df = df.copy()
         df["lr_method_loss"] = df.apply(
             lambda row: f"{row['lr']:.10f}_{row['method_loss']:.2f}", axis=1
         )
@@ -119,7 +167,15 @@ def agregate(args):
         f"{args.dataset}_{args.backbone}",
         args.main_exp_name,
     )
-    possible_val_types = ["", "Imgaug_average", "Cross_val_Imgaug_average", "test"]
+    metrics = normalize_val_only_metric(args.val_only_metric)
+    metric_labels = {
+        "average": "Imgaug_average",
+        "worst": "Imgaug_worst",
+        "cvar": "Imgaug_cvar",
+    }
+    possible_val_types = [""] + [metric_labels[m] for m in metrics]
+    possible_val_types += [f"Cross_val_{metric_labels[m]}" for m in metrics]
+    possible_val_types += ["test"]
     possible_pseudo_names = [
         "output_normal",
         "output_canny",
@@ -145,6 +201,7 @@ def agregate(args):
     for file_name in file_names:
 
         df = pd.read_csv(os.path.join(main_exp_name, file_name))
+        df = df.copy()
 
         df["lr_method_loss"] = df.apply(
             lambda row: f"{row['lr']:.10f}_{row['method_loss']:.2f}", axis=1

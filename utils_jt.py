@@ -37,6 +37,25 @@ def setup_device(gpu_id):
     return jt.flags.use_cuda
 
 
+def normalize_val_only_metric(val_only_metric):
+    if val_only_metric is None:
+        metrics = ["average"]
+    elif isinstance(val_only_metric, str):
+        metrics = [val_only_metric]
+    else:
+        metrics = list(val_only_metric)
+    seen = set()
+    out = []
+    for metric in metrics:
+        if metric is None:
+            continue
+        metric = str(metric).lower()
+        if metric and metric not in seen:
+            out.append(metric)
+            seen.add(metric)
+    return out or ["average"]
+
+
 def try_make_dir(directory):
     try:
         os.makedirs(directory)
@@ -213,13 +232,29 @@ def read_yaml(direct):
     return structure
 
 
-def initialize_csv_file(loader_info, csv_file_name, test_idx_list, domains):
+def initialize_csv_file(
+    loader_info, csv_file_name, test_idx_list, domains, val_only_metric=None
+):
     if not os.path.isfile(csv_file_name):
+        metrics = normalize_val_only_metric(val_only_metric)
+        metric_labels = {
+            "average": "Imgaug_average",
+            "worst": "Imgaug_worst",
+            "cvar": "Imgaug_cvar",
+        }
+        metric_headers = []
+        for metric in metrics:
+            label = metric_labels.get(metric)
+            if label is None:
+                continue
+            metric_headers.extend(
+                [[f"{label}_{name}"] for name in loader_info["output_names_val"]]
+            )
         headers = (
             [["lr"]]
             + [["method_loss"]]
             + [[name] for name in loader_info["output_names_val"]]
-            + [[f"Imgaug_average_{name}"] for name in loader_info["output_names_val"]]
+            + metric_headers
             + [[f"test_{name}"] for name in loader_info["output_names_val"]]
             + [
                 [f"{val}_{name}" for name in loader_info["output_names_val"]]

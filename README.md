@@ -1,4 +1,4 @@
-# Crafting Distribution Shifts（Jittor 迁移版）
+﻿# Crafting Distribution Shifts（Jittor 迁移版）
 
 本仓库为将原始 PyTorch 版 Crafting Distribution Shifts 项目迁移到 Jittor（计图）的实现。
 所有核心代码已在 Jittor 版本中重写，并加入了详细中文注释，说明 PyTorch 与 Jittor 的差异与迁移逻辑。
@@ -128,3 +128,133 @@ bash aggregate_visualize.sh
 ## 致谢（Acknowledgements）
 
 感谢 [Crafting Distribution Shifts](https://github.com/NikosEfth/crafting-shifts) 提供的代码与原版实验框架。
+---
+
+## 优化方案：更稳健的 VA（val_only）选参
+
+### 思路
+
+原始实现会把 `val_only` 各个增强组的准确率直接取均值（`Imgaug_average_*`），再用它来选超参。  
+这在组间方差较大时不够稳健：均值可能被“容易的组”主导，导致选出来的超参在测试集上不稳定。
+
+更稳健的替代指标：
+- `worst`：各组最小值（worst-group）。
+- `cvar`：最差的 k 个组的均值（bottom-k mean），比最小值更平滑。
+
+因此我们把 VA 汇总指标做成“可配置参数”，用于消融和更稳健的选参。
+
+### 新代码如何使用
+
+新增参数（训练端与聚合端一致）：
+- `--val_only_metric`：可选 `average / worst / cvar`，可多选。
+- `--val_only_cvar_k`：当选择 `cvar` 时使用，表示 bottom-k 的 k。
+
+常用用法：
+
+```bash
+# 1) 保持原始行为（仅 average）
+python method_jt.py ... --val_only_metric average
+
+# 2) average + worst（用于消融对比）
+python method_jt.py ... --val_only_metric average worst
+
+# 3) 仅使用 CVaR（bottom-k）
+python method_jt.py ... --val_only_metric cvar --val_only_cvar_k 3
+```
+
+聚合/汇总时建议保持一致：
+
+```bash
+python aggregate_results.py ... --val_only_metric average worst
+python aggregate_results.py ... --val_only_metric cvar --val_only_cvar_k 3
+```
+
+### 注意事项
+
+- 更换指标后请使用 `--search_mode new_test` 重新生成 CSV，或手动删除旧的 `Results_source_*.csv`，否则表头可能不匹配。
+- 如果已经存在 `Cross-Val_*.csv`，想加入新指标也需要用新的参数重新跑一次交叉验证生成。
+
+---
+
+## 优化方案：更密的融合权重网格（Fusion w）+ 用 VA 自动选
+
+### 思路
+
+当前推理阶段只提供了 3 个融合权重（例如 25-75 / 50-50 / 75-25）。
+这相当于在论文里的融合权重 `w` 上做了很粗的网格搜索，可能错过更优的权重。
+
+优化思路：
+- 在推理阶段生成更密的融合输出（例如 10-90, 20-80, ..., 90-10）。
+- 继续用现有的 VA / val_only 机制自动选择最优输出头（无需改训练）。
+
+这样基本不增加训练成本，但能更完整地覆盖融合权重空间。
+
+### 代码改动位置
+
+- 融合输出生成（推理阶段）：
+  - `models_jt.py` 中 `PseudoCombiner.execute`
+- 输出头名称同步（避免 CSV 表头对不上）：
+  - `utils_dataset_jt.py` 中 `set_dataloaders` 的 `output_names_val`
+- 参数入口（用于消融开关）：
+  - `method_jt.py` 中 `--fusion_weights`
+
+### 新代码如何使用
+
+这个优化现在由超参数控制：
+- `--fusion_weights`：一组 `w0`，融合时用 `w1 = 1 - w0`。
+
+示例：
+
+```bash
+# 1) 使用更密的融合网格（当前默认）
+python method_jt.py ... --fusion_weights 0.1 0.2 0.25 0.3 0.4 0.5 0.6 0.7 0.75 0.8 0.9 --search_mode new_test
+
+# 2) 退回原始的三档融合（方便消融）
+python method_jt.py ... --fusion_weights 0.25 0.5 0.75 --search_mode new_test
+```
+
+聚合时无需额外参数，但建议在更换 `fusion_weights` 后重新生成 CSV：
+
+```bash
+python aggregate_results.py ...
+```
+
+### 注意事项
+
+- 由于输出头集合会随 `fusion_weights` 变化，旧的 `Results_source_*.csv` / `Cross-Val_*.csv` 可能与新表头不一致，建议用 `--search_mode new_test` 重跑。
+- 训练逻辑不变：这些融合输出只在 eval 生成，不参与训练 loss。
+# 可视化使用说明
+
+## 结果可视化（visualize_results.py）
+
+`visualize_results.py` 会自动扫描 `Results/` 下各模型目录中的实验结果 CSV，
+并在 `Analysis_Results/` 下生成单实验图、单模型汇总图，以及跨模型/跨实验的全局汇总图。
+
+直接运行：
+
+```bash
+python visualize_results.py
+```
+
+默认约定：
+- 结果目录：`Results/PACS_caffenet`、`Results/PACS_resnet18`、`Results/PACS_vit_small`
+- CSV 文件：`Results_source_photo_seed_0.csv`（若存在子目录，会尝试 `imgaug_and_canny_training_all/Results_source_photo_seed_0.csv`）
+- 输出目录：`Analysis_Results/`
+
+如果你的结果目录或 CSV 命名不同，请在 `visualize_results.py` 顶部的 `base_path` 与 `model_dirs` 中进行相应修改。
+
+## 参数选择对比（visualize_VA_param.py）
+
+```bash
+python visualize_VA_param.py --dataset PACS --backbone resnet18 --results_root Results --variants origin worst cvar --exp_names imgaug_and_canny_training_all original_and_canny_training original-only_training
+```
+
+输出目录：`Analysis_Results/VA_param`
+
+## Fusion w 优化前后对比（visualize_fusion_w_cn.py）
+
+```bash
+python visualize_fusion_w.py --dataset PACS --backbone resnet18 --results_root Results --origin_dir Results_origin --fusion_dir Results_Fusion_w --exp_names imgaug_and_canny_training_all original_and_canny_training original-only_training
+```
+
+输出目录：`Analysis_Results/fusion_w`

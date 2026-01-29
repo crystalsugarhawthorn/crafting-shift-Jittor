@@ -94,6 +94,7 @@ def training_function(
         no_classes=len(loader_info["classes"]),
         pretrained=args.pretrained,
         backbone_name=args.backbone,
+        fusion_weights=getattr(args, "fusion_weights", None),
     )
     model.train()
 
@@ -193,10 +194,22 @@ def training_function(
 
 
 def testing_function(
-    model, loader_info, test_idx_list, lr, method_loss, csv_file_name, domains
+    model,
+    loader_info,
+    test_idx_list,
+    lr,
+    method_loss,
+    csv_file_name,
+    domains,
+    args=None,
 ):
     if model is not None:
-        val_only_acc, test_acc, imgaug_average = ([] for _ in range(3))
+        val_only_acc, test_acc = ([] for _ in range(2))
+        imgaug_average, imgaug_worst, imgaug_cvar = ([] for _ in range(3))
+        metrics = normalize_val_only_metric(
+            getattr(args, "val_only_metric", None) if args is not None else None
+        )
+        cvar_k = int(getattr(args, "val_only_cvar_k", 1)) if args is not None else 1
         print("Validating Normal")
         val_list = inference(model=model, loader=loader_info["val_loader"])
         if loader_info["val_only_loader"] is not None:
@@ -205,9 +218,20 @@ def testing_function(
                     f"Validating {loader_info['pd_names_val_only'][idx].replace('_', ' ')}"
                 )
                 val_only_acc.append(inference(model=model, loader=vo_loader))
-            imgaug_average = [
-                round(sum(col) / len(col), 4) for col in zip(*val_only_acc)
-            ]
+            if val_only_acc:
+                cols = list(zip(*val_only_acc))
+                if "average" in metrics:
+                    imgaug_average = [
+                        round(sum(col) / len(col), 4) for col in cols
+                    ]
+                if "worst" in metrics:
+                    imgaug_worst = [round(min(col), 4) for col in cols]
+                if "cvar" in metrics:
+                    imgaug_cvar = []
+                    for col in cols:
+                        k_eff = max(1, min(cvar_k, len(col)))
+                        bottom = sorted(col)[:k_eff]
+                        imgaug_cvar.append(round(sum(bottom) / k_eff, 4))
             val_only_acc = [item for sublist in val_only_acc for item in sublist]
         for idx2, test_idx in enumerate(test_idx_list):
             test_acc.append(
@@ -220,11 +244,19 @@ def testing_function(
 
         total_test = [round(sum(col) / len(col), 4) for col in zip(*test_acc)]
         test_acc_list_out = [item for sublist in test_acc for item in sublist]
+        metric_outputs = {
+            "average": imgaug_average,
+            "worst": imgaug_worst,
+            "cvar": imgaug_cvar,
+        }
+        metric_rows = []
+        for metric in metrics:
+            metric_rows += [[str(x)] for x in metric_outputs.get(metric, [])]
         add_free_log(
             data=[[str(lr)]]
             + [[str(method_loss)]]
             + [[str(x)] for x in val_list]
-            + [[str(x)] for x in imgaug_average]
+            + metric_rows
             + [[str(x)] for x in total_test]
             + [[str(x)] for x in val_only_acc]
             + [[str(x)] for x in test_acc_list_out],
@@ -282,6 +314,7 @@ def search_hyperparameters(
                     method_loss,
                     csv_file_name,
                     domains,
+                    args=args,
                 )
     elif args.lr is None:
         lr_search_range = generate_points(
@@ -309,6 +342,7 @@ def search_hyperparameters(
                 args.method_loss,
                 csv_file_name,
                 domains,
+                args=args,
             )
     elif args.method_loss is None:
         ml_search_range = generate_points(
@@ -334,4 +368,5 @@ def search_hyperparameters(
                 method_loss,
                 csv_file_name,
                 domains,
+                args=args,
             )

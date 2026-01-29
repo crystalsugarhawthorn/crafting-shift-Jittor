@@ -104,7 +104,14 @@ def set_dataloaders(
 
     output_names_val = [f"output_{name}" for name in pd_names_val]
     if len(pd_names_val) > 1:
-        output_names_val.extend(["output_25-75", "output_50-50", "output_75-25"])
+        fusion_weights = getattr(args, "fusion_weights", None) or [0.25, 0.50, 0.75]
+        fusion_names = []
+        for w0 in fusion_weights:
+            w1 = 1.0 - w0
+            left = int(round(w0 * 100))
+            right = int(round(w1 * 100))
+            fusion_names.append(f"output_{left}-{right}")
+        output_names_val.extend(fusion_names)
 
     return {
         "train_loader": train_set,
