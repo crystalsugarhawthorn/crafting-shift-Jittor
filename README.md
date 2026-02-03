@@ -26,7 +26,7 @@ pip install jittor imgaug numpy pillow scipy scikit-image pyyaml
 
 ---
 
-## 数据准备（Data Preparation） 📁
+## 数据准备（Data Preparation）
 
 数据文件位于：`data/PACS/`
 
@@ -90,7 +90,7 @@ crafting-shifts-Jittor/
 
 ---
 
-## 权重转换与预训练模型（Weights） 🧠
+## 权重转换与预训练模型（Weights）
 
 - 用于 CaffeNet/Caffe 权重转换的脚本：`convert_caffe.py`。
 - 用于将 timm 的 ViT-Small PyTorch 权重转换为 Jittor 的脚本：`convert_vit_small.py`（依赖 `torch` 与 `timm`）。
@@ -118,7 +118,7 @@ python convert_vit_small.py --src ./Pretrained_Models/vit_small_patch16_224.pth 
 
 ---
 
-## 程序执行（Execution） 🚀
+## 程序执行（Execution）
 
 ### 单条命令（Single Execution）
 
@@ -161,7 +161,7 @@ bash aggregate_visualize.sh
 ```
 ---
 
-## 仓库结构（Repository structure） 📂
+## 仓库结构（Repository structure）
 
 - `augmentations_jt.py`        : Canny/Invert/Normalize/ToTensor 等增强工具
 - `utils_dataset_jt.py`        : Dataset 与 imgaug/几何增强逻辑
@@ -181,6 +181,7 @@ bash aggregate_visualize.sh
 ## 致谢（Acknowledgements）
 
 感谢 [Crafting Distribution Shifts](https://github.com/NikosEfth/crafting-shifts) 提供的代码与原版实验框架。
+
 ---
 
 ## 优化方案：更稳健的 VA（val_only）选参
